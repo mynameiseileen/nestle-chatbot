@@ -546,15 +546,22 @@ app.get('/health', async (req, res) => {
   try {
     // Check service connectivity
     const neo4jStatus = await neo4jDriver.verifyConnectivity();
-    const searchStatus = await searchClient.getDocumentCount();
-    
+    // Try a simple query to Azure Search to test connectivity
+    const searchResults = await searchClient.search("*", { top: 1 });
+    // check if searchResults is iterable
+    let azureSearchConnected = false;
+    for await (const _ of searchResults) {
+      azureSearchConnected = true;
+      break;
+    }
+
     res.json({
       status: 'healthy',
       port: PORT,
       cacheSize: websiteContentCache.length,
       lastScrape: websiteContentCache.length > 0 ? new Date().toISOString() : 'never',
       neo4j: neo4jStatus ? 'connected' : 'disconnected',
-      azureSearch: searchStatus >= 0 ? 'connected' : 'disconnected'
+      azureSearch: azureSearchConnected ? 'connected' : 'disconnected'
     });
   } catch (error) {
     res.status(500).json({
