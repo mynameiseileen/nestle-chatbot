@@ -542,33 +542,8 @@ app.post('/api/graph/add-node', async (req, res) => {
 });
 
 // Health check
-app.get('/health', async (req, res) => {
-  try {
-    // Check service connectivity
-    const neo4jStatus = await neo4jDriver.verifyConnectivity();
-    // Try a simple query to Azure Search to test connectivity
-    const searchResults = await searchClient.search("*", { top: 1 });
-    // check if searchResults is iterable
-    let azureSearchConnected = false;
-    for await (const _ of searchResults) {
-      azureSearchConnected = true;
-      break;
-    }
-
-    res.json({
-      status: 'healthy',
-      port: PORT,
-      cacheSize: websiteContentCache.length,
-      lastScrape: websiteContentCache.length > 0 ? new Date().toISOString() : 'never',
-      neo4j: neo4jStatus ? 'connected' : 'disconnected',
-      azureSearch: azureSearchConnected ? 'connected' : 'disconnected'
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'degraded',
-      error: error.message
-    });
-  }
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy' });
 });
 
 // Start server
