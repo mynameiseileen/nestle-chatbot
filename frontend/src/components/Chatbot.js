@@ -24,6 +24,7 @@ import axios from 'axios';
 const Chatbot = () => {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [input, setInput] = useState('');
   const [messages, setMessages] = useState([
     {
       text: "Hey! I’m Smartie, your personal MadeWithNestlé assistant. Ask me anything, and I’ll quickly search the entire site to find the answers you need!",
