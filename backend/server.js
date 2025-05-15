@@ -10,11 +10,21 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware setup
+const allowedOrigins = [
+  'https://ambitious-island-06ab78d0f.6.azurestaticapps.net',
+  'http://localhost:3000'
+];
+
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: function(origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
-app.use(bodyParser.json());
 
 // Azure AI Search setup
 const searchCredential = new AzureKeyCredential(process.env.AZURE_SEARCH_API_KEY);

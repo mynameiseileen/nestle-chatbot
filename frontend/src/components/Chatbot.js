@@ -36,8 +36,8 @@ const Chatbot = () => {
 
   // Connect to backend API
   const API_URL = process.env.NODE_ENV === 'development'
-    ? 'http://localhost:3001/api/chat'
-    : '/api/chat';
+  ? 'http://localhost:3001/api/chat'
+  : 'https://nestle-chatbot-backend.azurewebsites.net/api/chat';
 
   // Open and close chatbot
   const handleClickOpen = () => {
