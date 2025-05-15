@@ -25,6 +25,7 @@ app.use(cors({
   },
   credentials: true
 }));
+app.use(bodyParser.json())
 
 // Azure AI Search setup
 const searchCredential = new AzureKeyCredential(process.env.AZURE_SEARCH_API_KEY);
