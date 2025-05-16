@@ -4,3 +4,4 @@ dist
 build
 deploy.zip
 backend-deploy.zip
+*.zip
