@@ -7,7 +7,7 @@ const { SearchClient, SearchIndexClient, AzureKeyCredential } = require('@azure/
 const neo4j = require('neo4j-driver');
 const puppeteer = require('puppeteer');
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 8080;
 
 // Middleware setup
 const allowedOrigins = [
@@ -38,7 +38,7 @@ const indexClient = new SearchIndexClient(
 async function ensureSearchIndex() {
   try {
     const indexName = process.env.AZURE_SEARCH_INDEX_NAME;
-    
+    ``
     // First checks if index exists
     try {
       await indexClient.getIndex(indexName);
@@ -239,13 +239,37 @@ let websiteContentCache = [];
 
 // Function for the web scraper
 async function scrapeWebsite() {
-  const browser = await puppeteer.launch({ 
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
-  const page = await browser.newPage();
+  let browser;
+  try {
+    // Initialize browser with error handling
+    browser = await puppeteer.launch({ 
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    }).catch(err => {
+      console.error('Failed to launch browser:', err.message);
+      return null;
+    });
+
+    if (!browser) {
+      console.log('Using cached data due to browser launch failure');
+      return websiteContentCache.length > 0 ? websiteContentCache : [];
+    }
+
+    const page = await browser.newPage().catch(err => {
+      console.error('Failed to create new page:', err.message);
+      return null;
+    });
+
+    if (!page) {
+      console.log('Using cached data due to page creation failure');
+      await browser.close();
+      return websiteContentCache.length > 0 ? websiteContentCache : [];
+    }
+
   // Fake user agent to avoid bot detection
-  await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+  await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
+    .catch(err => console.warn('Failed to set user agent:', err.message));
+
 
   const BASE_URL = 'https://www.madewithnestle.ca';
   const MAX_PAGES = 950;
@@ -291,7 +315,7 @@ async function scrapeWebsite() {
         const data = [];
         const selectors = ['h1', 'h2', 'h3', 'h4', 'p', 'li', 'span'];
 
-        // Extract text content
+        // Extract text
         selectors.forEach(selector => {
           document.querySelectorAll(selector).forEach(el => {
             const text = (el.textContent || '').trim();
@@ -338,53 +362,72 @@ async function scrapeWebsite() {
   }
 
   // Main crawling loop
-  while (queue.length > 0 && visitedUrls.size < MAX_PAGES) {
-    const currentUrl = queue.shift();
-    
-    if (!shouldCrawl(currentUrl)) continue;
+    while (queue.length > 0 && visitedUrls.size < MAX_PAGES) {
+      const currentUrl = queue.shift();
+      
+      if (!shouldCrawl(currentUrl)) continue;
 
-    console.log(`Crawling (${visitedUrls.size + 1}/${MAX_PAGES}): ${currentUrl}`);
-    visitedUrls.add(currentUrl);
+      try {
+        console.log(`Attempting to crawl (${visitedUrls.size + 1}/${MAX_PAGES}): ${currentUrl}`);
+        
+        const pageData = await extractPageContent(currentUrl);
+        if (pageData?.length > 0) {
+          scrapedData.push(...pageData);
+        }
 
-    try {
-      // Extract content from current page
-      const pageData = await extractPageContent(currentUrl);
-      if (pageData && pageData.length > 0) {
-        scrapedData.push(...pageData);
+        const links = await page.evaluate(() => 
+          Array.from(document.querySelectorAll('a[href]'))
+            .map(a => a.href)
+            .filter(href => href && typeof href === 'string')
+        ).catch(err => {
+          console.warn(`Failed to extract links from ${currentUrl}:`, err.message);
+          return [];
+        });
+
+        prioritizeLinks(links).forEach(link => {
+          if (shouldCrawl(link)) {
+            try {
+              const normalizedLink = new URL(link).toString();
+              if (!queue.includes(normalizedLink)) { 
+                queue.push(normalizedLink);
+              }
+            } catch (e) {
+              console.warn('Invalid URL:', link);
+            }
+          }
+        });
+
+        visitedUrls.add(currentUrl);
+      } catch (error) {
+        console.error(`Critical error processing ${currentUrl}:`, error.message);
+        // Continue to next URL instead of breaking
       }
 
-      // Get all links from current page
-      const links = await page.evaluate(() => 
-        Array.from(document.querySelectorAll('a[href]'))
-          .map(a => a.href)
-          .filter(href => href && typeof href === 'string')
-      );
-
-      // Add prioritized links to queue
-      prioritizeLinks(links).forEach(link => {
-        if (shouldCrawl(link)) {
-          const normalizedLink = new URL(link).toString();
-          if (!queue.includes(normalizedLink)) { 
-            queue.push(normalizedLink);
-          }
-        }
-    });
-    } catch (error) {
-      console.error(`Error processing ${currentUrl}:`, error.message);
+      await new Promise(r => setTimeout(r, 1000));
     }
 
-    await new Promise(r => setTimeout(r, 1000));    // Delay to avoid bot detection
-  }
+    // Process results if there's any data
+    if (scrapedData.length > 0) {
+      try {
+        websiteContentCache = scrapedData;
+        await graphRAG.ingestContent(scrapedData);
+        console.log(`Successfully processed ${scrapedData.length} items`);
+      } catch (ingestError) {
+        console.error('Failed to ingest content:', ingestError.message);
+      }
+    }
 
-  // Process results
-  if (scrapedData.length > 0) {
-    websiteContentCache = scrapedData;
-    await graphRAG.ingestContent(scrapedData);
-    console.log(`Scraped ${scrapedData.length} items from ${visitedUrls.size} pages`);
-  }
+    return scrapedData.length > 0 ? scrapedData : (websiteContentCache.length > 0 ? websiteContentCache : []);
 
-  await browser.close();
-  return scrapedData;
+  } catch (globalError) {
+    console.error('Global scraping error:', globalError.message);
+    return websiteContentCache.length > 0 ? websiteContentCache : [];
+  } finally {
+    if (browser) {
+      await browser.close().catch(err => 
+        console.warn('Failed to close browser:', err.message));
+    }
+  }
 }
 
 // Function uploads documents to Azure AI Search
